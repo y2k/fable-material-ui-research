@@ -6,24 +6,29 @@ module Prelude =
     let inline (<!) f a () = f a
     let inline (>>=) ma mf = async.Bind(ma, mf)
     let inline (>>-) ma f = async.Bind(ma, f >> async.Return)
+    let inline flip f a b = f b a
 
 module Domain =
+    open Fable.Core
     open Elmish
-    open FSharp.Data
+    open Fetch
 
-    type PostsApi = JsonProvider<"https://jsonplaceholder.typicode.com/posts">
+    type Post = { userId: int; id: int; title: string; body: string }
+    type Model = { posts: Post []; error: bool; isBusy: bool }
+    type Msg = PostsLoaded of Result<Post [], exn>
 
-    type Model = { posts : PostsApi.Root [] }
-    type Msg = PostsLoaded of Result<PostsApi.Root [], exn>
+    let downloadPosts = async { 
+        let! r = fetch "https://jsonplaceholder.typicode.com/posts" [] |> Async.AwaitPromise
+        return! r.json<Post []> () |> Async.AwaitPromise }
 
     let init _ = 
-        { posts = [||] },
-        PostsApi.AsyncLoad "https://jsonplaceholder.typicode.com/posts"
+        { posts = [||]; error = false; isBusy = true },
+        downloadPosts
         |> fun a -> Cmd.OfAsync.either (fun _ -> a) () (Ok >> PostsLoaded) (Error >> PostsLoaded)
-    let update msg model =
-        match msg with
-        | PostsLoaded (Ok posts) -> { model with posts = posts }, Cmd.none
-        | PostsLoaded (Error _) -> model, Cmd.none
+
+    let update model = function
+        | PostsLoaded (Ok posts) -> { model with posts = Array.take 15 posts; isBusy = false }, Cmd.none
+        | PostsLoaded (Error _) -> { model with error = true; isBusy = false }, Cmd.none
 
 module View =
     open Browser
@@ -33,47 +38,59 @@ module View =
     open Fable.MaterialUI.Core
     open Fable.MaterialUI.Themes
 
-    let viewAppBar title buttonTitle =
-        appBar [ AppBarProp.Position AppBarPosition.Static ] [
+    let viewAppBar title =
+        appBar [ AppBarProp.Position AppBarPosition.Fixed ] [
             toolbar [] [
                 typography [ 
                     Style [ FlexGrow 1 ]
                     TypographyProp.Variant TypographyVariant.H6
                     MaterialProp.Color ComponentColor.Inherit ] [ 
                     str title ]
-                iconButton [] []
-                button [ MaterialProp.Color ComponentColor.Inherit ] [ str buttonTitle ] ] ]
+                iconButton [] [] ] ]
 
-    let viewItem (i : Domain.PostsApi.Root) =
+    let viewItem (i : Domain.Post) =
         card [] [
-            div [ Style [ Display DisplayOptions.Flex; MarginTop "8dp"; FlexDirection "column" ] ] [
-                button [ ButtonProp.Variant ButtonVariant.Contained ] [ 
-                    str <| sprintf "Slide #%O" i ] ] ]
+            cardContent [] [
+                typography [ TypographyProp.Variant TypographyVariant.H6 ] [ 
+                    str i.title ]
+                typography [ TypographyProp.Variant TypographyVariant.Subtitle1 ] [ 
+                    str i.body ] ]
+            cardActions [] [
+                button [ ButtonProp.Size ButtonSize.Small ] [ str "Learn more" ] ] ]
 
-    let view (model : Domain.Model) _ =
-        div [
-            Style [ 
-                Display DisplayOptions.Flex
-                FlexGrow 1
-                FlexDirection "column" ] ] [
-            viewAppBar "Example" "Login"
-            list [
-                Style [
-                    FlexGrow 1
-                    Display DisplayOptions.Flex
-                    FlexDirection "column" ] ] [
-                    yield! model.posts |> Array.map viewItem ]
-                    
-            bottomNavigation [ BottomNavigationProp.ShowLabels true ] [
-                bottomNavigationAction [ MaterialProp.Label <| str "Feed" ] 
-                bottomNavigationAction [ MaterialProp.Label <| str "Tags" ] 
-                bottomNavigationAction [ MaterialProp.Label <| str "Messages" ] 
-                bottomNavigationAction [ MaterialProp.Label <| str "Profile" ] ] ]
+    let contentView (model : Domain.Model) =
+        div [ 
+            Style [ PaddingTop 60; PaddingBottom 50 ] ] [
+            div [ Style [ Display DisplayOptions.Flex; JustifyContent "center" ] ] [
+                if model.isBusy then
+                    yield circularProgress [ LinearProgressProp.Color LinearProgressColor.Secondary ] ]
+            snackbar [ 
+                MaterialProp.Open model.error
+                SnackbarProp.Message ^ str "Error" ] []
+            list [] [
+                yield! 
+                    model.posts 
+                    |> Array.map (fun x -> listItem [] [ viewItem x ]) ] ]
+
+    let view model _ =
+        fragment [] [
+            cssBaseline []
+            viewAppBar "Posts"
+            contentView model
+            appBar [ 
+                Style [ Bottom 0; Top "auto" ]
+                AppBarProp.Position AppBarPosition.Fixed ] [
+                bottomNavigation [ 
+                    BottomNavigationProp.ShowLabels true ] [
+                    bottomNavigationAction [ MaterialProp.Label <| str "Feed" ] 
+                    bottomNavigationAction [ MaterialProp.Label <| str "Tags" ] 
+                    bottomNavigationAction [ MaterialProp.Label <| str "Messages" ] 
+                    bottomNavigationAction [ MaterialProp.Label <| str "Profile" ] ] ] ]
 
 open Elmish
 open Elmish.React
 
-Program.mkProgram Domain.init Domain.update View.view
+Program.mkProgram Domain.init (flip Domain.update) View.view
 |> Program.withReactSynchronous "elmish-app"
 |> Program.withConsoleTrace
 |> Program.run
