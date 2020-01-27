@@ -7,7 +7,7 @@ module Prelude =
     let inline (>>=) ma mf = async.Bind(ma, mf)
     let inline (>>-) ma f = async.Bind(ma, f >> async.Return)
     let inline flip f a b = f b a
-
+    let inline cmap fmodel fmsg (model, cmd) = model |> fmodel, cmd |> Elmish.Cmd.map fmsg
 type Post = { userId: int; id: int; title: string; body: string }
 type 'a States = Loading | Failed of exn | Success of 'a
 
@@ -161,28 +161,17 @@ module Routing =
     module Domain =
         open Elmish
     
-        let route =
-            oneOf [ 
-                map Post (s "post" </> i32)
-                map Posts (s "posts") ]
-        let urlUpdate (result: Route option) model = 
+        let route = oneOf [ map Post (s "post" </> i32); map Posts (s "posts") ]
+        let urlUpdate result model = 
             match result with
-            | Some Posts -> 
-                let (a, b) = FeedScreen.Domain.init () 
-                a |> PostsModel, b |> Cmd.map PostsMsg
-            | Some (Post id) -> 
-                let (a, b) = PostScreen.Domain.init id
-                a |> PostModel, b |> Cmd.map PostMsg
+            | Some Posts -> FeedScreen.Domain.init () |> cmap PostsModel PostsMsg
+            | Some (Post id) -> PostScreen.Domain.init id |> cmap PostModel PostMsg
             | None -> model, Navigation.modifyUrl "#"
         let init _ = urlUpdate (Some Posts) NoneModel
         let update model msg = 
             match model, msg with
-            | PostsModel m, PostsMsg mg ->
-                let (a, b) = FeedScreen.Domain.update m mg
-                a |> PostsModel, b |> Cmd.map PostsMsg
-            | PostModel m, PostMsg mg ->
-                let (a, b) = PostScreen.Domain.update m mg
-                a |> PostModel, b |> Cmd.map PostMsg
+            | PostsModel m, PostsMsg mg -> FeedScreen.Domain.update m mg |> cmap PostsModel PostsMsg
+            | PostModel m, PostMsg mg -> PostScreen.Domain.update m mg |> cmap PostModel PostMsg
             | _ -> model, Cmd.none
     
     module View =
