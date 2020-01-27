@@ -22,7 +22,7 @@ module Styles =
             toolbar [] [
                 typography 
                     [ Style [ FlexGrow 1 ]
-                      TypographyProp.Variant TypographyVariant.H6
+                      Variant TypographyVariant.H6
                       MaterialProp.Color ComponentColor.Inherit ] [ 
                     str title ]
                 iconButton 
@@ -41,7 +41,7 @@ module PostScreen =
         let downloadPost id = 
             sprintf "https://jsonplaceholder.typicode.com/posts/%i" id
             |> flip fetch []
-            |> Promise.bind (fun r -> r.json<Post> ())
+            |> Promise.bind ^ fun r -> r.json<Post>()
 
         let init id = Loading, Cmd.OfPromise.either downloadPost id Success Failed
         let update _ msg = msg, Cmd.none
@@ -55,9 +55,9 @@ module PostScreen =
         let viewPost (i : Post) =
             card [] [
                 cardContent [] [
-                    typography [ TypographyProp.Variant TypographyVariant.H6 ] [ 
+                    typography [ Variant TypographyVariant.H6 ] [ 
                         str i.title ]
-                    typography [ TypographyProp.Variant TypographyVariant.Subtitle1 ] [ 
+                    typography [ Variant TypographyVariant.Subtitle1 ] [ 
                         str i.body ] ]
                 cardActions [] [
                     button [ ButtonProp.Size ButtonSize.Small ] [ str "Learn more" ] ] ]
@@ -108,14 +108,14 @@ module FeedScreen =
         let viewItem (i : Post) =
             card [] [
                 cardContent [] [
-                    typography [ TypographyProp.Variant TypographyVariant.H6 ] [ 
+                    typography [ Variant TypographyVariant.H6 ] [ 
                         str i.title ]
-                    typography [ TypographyProp.Variant TypographyVariant.Subtitle1 ] [ 
+                    typography [ Variant TypographyVariant.Subtitle1 ] [ 
                         str i.body ] ]
                 cardActions [] [
                     button 
                         [ ButtonProp.Size ButtonSize.Small
-                          ButtonProp.Href ^ sprintf "#post/%i" i.id ] [ 
+                          Href ^ sprintf "#post/%i" i.id ] [ 
                         str "Learn more" ] ] ]
 
         let contentView (model : Domain.Model) =
@@ -124,8 +124,8 @@ module FeedScreen =
                     if model.isBusy then
                         yield circularProgress [ LinearProgressProp.Color LinearProgressColor.Secondary ] ]
                 snackbar 
-                    [ MaterialProp.Open model.error
-                      SnackbarProp.Message ^ str "Error" ] []
+                    [ Open model.error
+                      Message ^ str "Error" ] []
                 list [] [
                     yield! 
                         model.posts 
@@ -139,11 +139,11 @@ module FeedScreen =
                 appBar 
                     [ Style [ Bottom 0; Top "auto" ]
                       AppBarProp.Position AppBarPosition.Fixed ] [
-                    bottomNavigation [ BottomNavigationProp.ShowLabels true ] [
-                        bottomNavigationAction [ MaterialProp.Label ^ str "Feed" ] 
-                        bottomNavigationAction [ MaterialProp.Label ^ str "Tags" ] 
-                        bottomNavigationAction [ MaterialProp.Label ^ str "Messages" ] 
-                        bottomNavigationAction [ MaterialProp.Label ^ str "Profile" ] ] ] ]
+                    bottomNavigation [ ShowLabels true ] [
+                        bottomNavigationAction [ Label ^ str "Feed" ] 
+                        bottomNavigationAction [ Label ^ str "Tags" ] 
+                        bottomNavigationAction [ Label ^ str "Messages" ] 
+                        bottomNavigationAction [ Label ^ str "Profile" ] ] ] ]
 
 module Routing =
     open Elmish.UrlParser
@@ -186,9 +186,6 @@ module Routing =
             | _ -> model, Cmd.none
     
     module View =
-        open Elmish
-        open Fable.React
-
         let view model _ = 
             match model with
             | PostModel m -> PostScreen.View.view m ()
