@@ -11,16 +11,36 @@ module Prelude =
 type Post = { userId: int; id: int; title: string; body: string }
 type 'a States = Loading | Failed of exn | Success of 'a
 
+module Styles =
+    open Fable.React
+    open Fable.React.Props
+    open Fable.MaterialUI.Props
+    open Fable.MaterialUI.Core
+
+    let appBar title =
+        appBar [ AppBarProp.Position AppBarPosition.Fixed ] [
+            toolbar [] [
+                typography 
+                    [ Style [ FlexGrow 1 ]
+                      TypographyProp.Variant TypographyVariant.H6
+                      MaterialProp.Color ComponentColor.Inherit ] [ 
+                    str title ]
+                iconButton 
+                    [ Style [ MarginRight -12 ]
+                      MaterialProp.Color ComponentColor.Inherit ] [ 
+                    icon [] [ str "more_vert" ] ] ] ]
+
 module PostScreen =
     module Domain =
         open Fetch
         open Elmish
 
         type Model = Post States
+        type Msg = Post States
 
         let downloadPost id = 
             sprintf "https://jsonplaceholder.typicode.com/posts/%i" id
-            |> flip fetch [] 
+            |> flip fetch []
             |> Promise.bind (fun r -> r.json<Post> ())
 
         let init id = Loading, Cmd.OfPromise.either downloadPost id Success Failed
@@ -32,8 +52,29 @@ module PostScreen =
         open Fable.MaterialUI.Props
         open Fable.MaterialUI.Core
 
+        let viewPost (i : Post) =
+            card [] [
+                cardContent [] [
+                    typography [ TypographyProp.Variant TypographyVariant.H6 ] [ 
+                        str i.title ]
+                    typography [ TypographyProp.Variant TypographyVariant.Subtitle1 ] [ 
+                        str i.body ] ]
+                cardActions [] [
+                    button [ ButtonProp.Size ButtonSize.Small ] [ str "Learn more" ] ] ]
+
+        let viewContent model =
+            match model with
+            | Loading -> 
+                div [ Style [ Display DisplayOptions.Flex; JustifyContent "center" ] ] [
+                    circularProgress [ LinearProgressProp.Color LinearProgressColor.Secondary ] ]
+            | Success p -> viewPost p
+            | Failed _ -> div [] []
+
         let view (model: Domain.Model) _ =
-            div [] []
+            fragment [] [
+                Styles.appBar "Post"
+                div [ Style [ PaddingTop 60 ] ] [
+                    viewContent model ] ]
 
 module FeedScreen =
     module Domain =
@@ -42,7 +83,7 @@ module FeedScreen =
         open Elmish
 
         type Model = { posts: Post []; error: bool; isBusy: bool }
-        type Msg = PostsLoaded of Result<Post [], exn>
+        type Msg = PostsLoaded of Result<Post [], exn> | OpenPost of int
 
         let downloadPosts = async { 
             let! r = fetch "https://jsonplaceholder.typicode.com/posts" [] |> Async.AwaitPromise
@@ -54,6 +95,7 @@ module FeedScreen =
             |> fun a -> Cmd.OfAsync.either (fun _ -> a) () (Ok >> PostsLoaded) (Error >> PostsLoaded)
 
         let update model = function
+            | OpenPost id -> model, Navigation.Navigation.modifyUrl ^ sprintf "/post/%i" id
             | PostsLoaded (Ok posts) -> { model with posts = Array.take 15 posts; isBusy = false }, Cmd.none
             | PostsLoaded (Error _) -> { model with error = true; isBusy = false }, Cmd.none
 
@@ -63,19 +105,6 @@ module FeedScreen =
         open Fable.MaterialUI.Props
         open Fable.MaterialUI.Core
 
-        let viewAppBar title =
-            appBar [ AppBarProp.Position AppBarPosition.Fixed ] [
-                toolbar [] [
-                    typography 
-                        [ Style [ FlexGrow 1 ]
-                          TypographyProp.Variant TypographyVariant.H6
-                          MaterialProp.Color ComponentColor.Inherit ] [ 
-                        str title ]
-                    iconButton 
-                        [ Style [ MarginRight -12 ]
-                          MaterialProp.Color ComponentColor.Inherit ] [ 
-                        icon [] [ str "more_vert" ] ] ] ]
-
         let viewItem (i : Post) =
             card [] [
                 cardContent [] [
@@ -84,7 +113,10 @@ module FeedScreen =
                     typography [ TypographyProp.Variant TypographyVariant.Subtitle1 ] [ 
                         str i.body ] ]
                 cardActions [] [
-                    button [ ButtonProp.Size ButtonSize.Small ] [ str "Learn more" ] ] ]
+                    button 
+                        [ ButtonProp.Size ButtonSize.Small
+                          ButtonProp.Href ^ sprintf "#post/%i" i.id ] [ 
+                        str "Learn more" ] ] ]
 
         let contentView (model : Domain.Model) =
             div [ Style [ PaddingTop 60; PaddingBottom 50 ] ] [
@@ -102,7 +134,7 @@ module FeedScreen =
         let view model _ =
             fragment [] [
                 cssBaseline []
-                viewAppBar "Posts"
+                Styles.appBar "Posts"
                 contentView model
                 appBar 
                     [ Style [ Bottom 0; Top "auto" ]
@@ -113,10 +145,63 @@ module FeedScreen =
                         bottomNavigationAction [ MaterialProp.Label ^ str "Messages" ] 
                         bottomNavigationAction [ MaterialProp.Label ^ str "Profile" ] ] ] ]
 
+module Routing =
+    open Elmish.UrlParser
+    open Elmish.Navigation
+
+    type Route = Posts | Post of int
+    type SubModel =
+        | PostModel of PostScreen.Domain.Model
+        | PostsModel of FeedScreen.Domain.Model
+        | NoneModel
+    type Msg =
+        | PostMsg of PostScreen.Domain.Msg
+        | PostsMsg of FeedScreen.Domain.Msg
+
+    module Domain =
+        open Elmish
+    
+        let route =
+            oneOf [ 
+                map Post (s "post" </> i32)
+                map Posts (s "posts") ]
+        let urlUpdate (result: Route option) model = 
+            match result with
+            | Some Posts -> 
+                let (a, b) = FeedScreen.Domain.init () 
+                a |> PostsModel, b |> Cmd.map PostsMsg
+            | Some (Post id) -> 
+                let (a, b) = PostScreen.Domain.init id
+                a |> PostModel, b |> Cmd.map PostMsg
+            | None -> model, Navigation.modifyUrl "#"
+        let init _ = urlUpdate (Some Posts) NoneModel
+        let update model msg = 
+            match model, msg with
+            | PostsModel m, PostsMsg mg ->
+                let (a, b) = FeedScreen.Domain.update m mg
+                a |> PostsModel, b |> Cmd.map PostsMsg
+            | PostModel m, PostMsg mg ->
+                let (a, b) = PostScreen.Domain.update m mg
+                a |> PostModel, b |> Cmd.map PostMsg
+            | _ -> model, Cmd.none
+    
+    module View =
+        open Elmish
+        open Fable.React
+
+        let view model _ = 
+            match model with
+            | PostModel m -> PostScreen.View.view m ()
+            | PostsModel m -> FeedScreen.View.view m ()
+            | _ -> failwith "???"
+
 open Elmish
 open Elmish.React
+open Elmish.Navigation
+open Elmish.UrlParser
 
-Program.mkProgram PostScreen.Domain.init (flip PostScreen.Domain.update) PostScreen.View.view
+Program.mkProgram Routing.Domain.init (flip Routing.Domain.update) Routing.View.view
+|> Program.toNavigable (parseHash Routing.Domain.route) Routing.Domain.urlUpdate
 |> Program.withReactSynchronous "elmish-app"
 |> Program.withConsoleTrace
-|> Program.runWith 5
+|> Program.run
