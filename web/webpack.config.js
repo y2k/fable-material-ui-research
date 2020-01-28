@@ -1,4 +1,5 @@
 var path = require("path");
+var webpack = require("webpack");
 
 module.exports = {
     mode: "development",
@@ -10,11 +11,14 @@ module.exports = {
     devServer: {
         contentBase: "./public",
         port: 8080,
+        hot: true,
+        inline: true
     },
     module: {
         rules: [{
             test: /\.fs(x|proj)?$/,
             use: "fable-loader"
         }]
-    }
+    },
+    plugins: [new webpack.HotModuleReplacementPlugin()]
 }
