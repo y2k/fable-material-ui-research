@@ -78,26 +78,23 @@ module PostScreen =
 
 module FeedScreen =
     module Domain =
-        open Fable.Core
         open Fetch
         open Elmish
 
-        type Model = { posts: Post []; error: bool; isBusy: bool }
+        type Model = Post [] States
         type Msg = PostsLoaded of Result<Post [], exn> | OpenPost of int
 
-        let downloadPosts = async { 
-            let! r = fetch "https://jsonplaceholder.typicode.com/posts" [] |> Async.AwaitPromise
-            return! r.json<Post []> () |> Async.AwaitPromise }
+        let downloadPosts() =
+            fetch "https://jsonplaceholder.typicode.com/posts" []
+            |> Promise.bind ^ fun r -> r.json<Post []>()
 
         let init _ = 
-            { posts = [||]; error = false; isBusy = true },
-            downloadPosts
-            |> fun a -> Cmd.OfAsync.either (fun _ -> a) () (Ok >> PostsLoaded) (Error >> PostsLoaded)
+            Loading, Cmd.OfPromise.either downloadPosts () (Ok >> PostsLoaded) (Error >> PostsLoaded)
 
         let update model = function
             | OpenPost id -> model, Navigation.Navigation.modifyUrl ^ sprintf "/post/%i" id
-            | PostsLoaded (Ok posts) -> { model with posts = Array.take 15 posts; isBusy = false }, Cmd.none
-            | PostsLoaded (Error _) -> { model with error = true; isBusy = false }, Cmd.none
+            | PostsLoaded (Ok posts) -> Success posts, Cmd.none
+            | PostsLoaded (Error e) -> Failed e, Cmd.none
 
     module View =
         open Fable.React
@@ -118,22 +115,24 @@ module FeedScreen =
                           Href ^ sprintf "#post/%i" i.id ] [ 
                         str "Learn more" ] ] ]
 
-        let contentView (model : Domain.Model) =
+        let contentView model =
             div [ Style [ PaddingTop 60; PaddingBottom 50 ] ] [
-                div [ Style [ Display DisplayOptions.Flex; JustifyContent "center" ] ] [
-                    if model.isBusy then
-                        yield circularProgress [ LinearProgressProp.Color LinearProgressColor.Secondary ] ]
-                snackbar 
-                    [ Open model.error
-                      Message ^ str "Error" ] []
-                list [] [
-                    yield! 
-                        model.posts 
-                        |> Array.map (fun x -> listItem [] [ viewItem x ]) ] ]
+                yield
+                    match model with
+                    | Loading ->
+                        div [ Style [ Display DisplayOptions.Flex; JustifyContent "center" ] ] [
+                            if model = Loading then
+                                yield circularProgress [ LinearProgressProp.Color LinearProgressColor.Secondary ] ]
+                    | Success posts ->
+                        list [] [ yield! posts |> Array.map (fun x -> listItem [] [ viewItem x ]) ]
+                    | Failed _ -> div [] []
+                yield
+                    snackbar 
+                        [ MaterialProp.Open (match model with Failed _ -> true | _ -> false)
+                          SnackbarProp.Message ^ str "Error" ] [] ]
 
         let view model _ =
             fragment [] [
-                cssBaseline []
                 Styles.appBar "Posts"
                 contentView model
                 appBar 
@@ -161,17 +160,20 @@ module Routing =
     module Domain =
         open Elmish
     
-        let route = oneOf [ map Post (s "post" </> i32); map Posts (s "posts") ]
-        let urlUpdate result model = 
+        let route = oneOf [ map Post (s "post" </> i32); map Posts top ]
+        let wrap fmodel fmsg (a, b) = a |> fmodel, b |> Cmd.map fmsg
+        let urlUpdate (result: Route option) model = 
             match result with
-            | Some Posts -> FeedScreen.Domain.init () |> cmap PostsModel PostsMsg
-            | Some (Post id) -> PostScreen.Domain.init id |> cmap PostModel PostMsg
+            | Some Posts -> FeedScreen.Domain.init() |> wrap PostsModel PostsMsg
+            | Some (Post id) ->  PostScreen.Domain.init id |> wrap PostModel PostMsg
             | None -> model, Navigation.modifyUrl "#"
-        let init _ = urlUpdate (Some Posts) NoneModel
+        let init _ = FeedScreen.Domain.init() |> wrap PostsModel PostsMsg
         let update model msg = 
             match model, msg with
-            | PostsModel m, PostsMsg mg -> FeedScreen.Domain.update m mg |> cmap PostsModel PostsMsg
-            | PostModel m, PostMsg mg -> PostScreen.Domain.update m mg |> cmap PostModel PostMsg
+            | PostsModel m, PostsMsg mg ->
+                FeedScreen.Domain.update m mg |> wrap PostsModel PostsMsg
+            | PostModel m, PostMsg mg ->
+                PostScreen.Domain.update m mg |> wrap PostModel PostMsg
             | _ -> model, Cmd.none
     
     module View =
@@ -185,6 +187,7 @@ open Elmish
 open Elmish.React
 open Elmish.Navigation
 open Elmish.UrlParser
+open Elmish.HMR
 
 Program.mkProgram Routing.Domain.init (flip Routing.Domain.update) Routing.View.view
 |> Program.toNavigable (parseHash Routing.Domain.route) Routing.Domain.urlUpdate
