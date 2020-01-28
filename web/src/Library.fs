@@ -7,9 +7,11 @@ module Prelude =
     let inline (>>=) ma mf = async.Bind(ma, mf)
     let inline (>>-) ma f = async.Bind(ma, f >> async.Return)
     let inline flip f a b = f b a
-    let inline cmap fmodel fmsg (model, cmd) = model |> fmodel, cmd |> Elmish.Cmd.map fmsg
+
 type Post = { userId: int; id: int; title: string; body: string }
+type Comment = { postId: int; id: int; name: string; email: string; body: string }
 type 'a States = Loading | Failed of exn | Success of 'a
+    with static member map f = function Success x -> Success ^ f x | x -> x
 
 module Styles =
     open Fable.React
@@ -35,16 +37,25 @@ module PostScreen =
         open Fetch
         open Elmish
 
-        type Model = Post States
-        type Msg = Post States
+        type Model = { post: Post States; comments: Comment [] States }
+        type Msg =  PostChanged of Post States | CommentsChanged of Comment [] States
 
-        let downloadPost id = 
-            sprintf "https://jsonplaceholder.typicode.com/posts/%i" id
+        let download<'a> url = 
+            sprintf "https://jsonplaceholder.typicode.com%s" url
             |> flip fetch []
-            |> Promise.bind ^ fun r -> r.json<Post>()
+            |> Promise.bind ^ fun r -> r.json<'a>()
+        let downloadPost = sprintf "/posts/%i" >> download<Post>
+        let downloadComments = sprintf "/posts/%i/comments" >> download<Comment []>
 
-        let init id = Loading, Cmd.OfPromise.either downloadPost id Success Failed
-        let update _ msg = msg, Cmd.none
+        let init id = 
+            { post = Loading; comments = Loading },
+            Cmd.batch [
+                Cmd.OfPromise.either downloadPost id (Success >> PostChanged) (Failed >> PostChanged)
+                Cmd.OfPromise.either downloadComments id (Success >> CommentsChanged) (Failed >> CommentsChanged) ]
+        let update model = function
+            | PostChanged x -> { model with post = x }, Cmd.none
+            | CommentsChanged x -> 
+                { model with comments = States<_>.map (Array.take 10) x }, Cmd.none
 
     module View =
         open Fable.React
@@ -53,14 +64,11 @@ module PostScreen =
         open Fable.MaterialUI.Core
 
         let viewPost (i : Post) =
-            card [] [
-                cardContent [] [
-                    typography [ Variant TypographyVariant.H6 ] [ 
-                        str i.title ]
-                    typography [ Variant TypographyVariant.Subtitle1 ] [ 
-                        str i.body ] ]
-                cardActions [] [
-                    button [ ButtonProp.Size ButtonSize.Small ] [ str "Learn more" ] ] ]
+            fragment [] [
+                typography [ Variant TypographyVariant.H6 ] [ 
+                    str i.title ]
+                typography [ Variant TypographyVariant.Subtitle1 ] [ 
+                    str i.body ] ]
 
         let viewContent model =
             match model with
@@ -70,11 +78,25 @@ module PostScreen =
             | Success p -> viewPost p
             | Failed _ -> div [] []
 
-        let view (model: Domain.Model) _ =
+        let viewComment (c : Comment) = 
+            typography [ Variant TypographyVariant.Subtitle1 ] [ 
+                str c.body ]
+
+        let viewComments = function
+            | Loading -> 
+                div [ Style [ Display DisplayOptions.Flex; JustifyContent "center" ] ] [
+                    circularProgress [ LinearProgressProp.Color LinearProgressColor.Secondary ] ]
+            | Success commnets -> 
+                list [] [ yield! commnets |> Array.map (fun x -> listItem [ ListItemProp.Divider true ] [ viewComment x ]) ]
+            | Failed _ -> div [] []
+
+        let view (model : Domain.Model) _ =
             fragment [] [
                 Styles.appBar "Post"
                 div [ Style [ PaddingTop 60 ] ] [
-                    viewContent model ] ]
+                    viewContent model.post
+                    typography [ Variant TypographyVariant.H6 ] [ str "Comments:" ]
+                    viewComments model.comments ] ]
 
 module FeedScreen =
     module Domain =
