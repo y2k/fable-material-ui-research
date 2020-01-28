@@ -7,9 +7,11 @@ module Prelude =
     let inline (>>=) ma mf = async.Bind(ma, mf)
     let inline (>>-) ma f = async.Bind(ma, f >> async.Return)
     let inline flip f a b = f b a
-    let inline cmap fmodel fmsg (model, cmd) = model |> fmodel, cmd |> Elmish.Cmd.map fmsg
+
 type Post = { userId: int; id: int; title: string; body: string }
+type Comment = { postId: int; id: int; name: string; email: string; body: string }
 type 'a States = Loading | Failed of exn | Success of 'a
+    with static member map f = function Success x -> Success ^ f x | x -> x
 
 module Styles =
     open Fable.React
@@ -31,20 +33,29 @@ module Styles =
                     icon [] [ str "more_vert" ] ] ] ]
 
 module PostScreen =
+    type Model = { post: Post States; comments: Comment [] States }
+    type Msg =  PostChanged of Post States | CommentsChanged of Comment [] States
+
     module Domain =
         open Fetch
         open Elmish
 
-        type Model = Post States
-        type Msg = Post States
-
-        let downloadPost id = 
-            sprintf "https://jsonplaceholder.typicode.com/posts/%i" id
+        let download<'a> url = 
+            sprintf "https://jsonplaceholder.typicode.com%s" url
             |> flip fetch []
-            |> Promise.bind ^ fun r -> r.json<Post>()
+            |> Promise.bind ^ fun r -> r.json<'a>()
+        let downloadPost = sprintf "/posts/%i" >> download<Post>
+        let downloadComments = sprintf "/posts/%i/comments" >> download<Comment []>
 
-        let init id = Loading, Cmd.OfPromise.either downloadPost id Success Failed
-        let update _ msg = msg, Cmd.none
+        let init id = 
+            { post = Loading; comments = Loading },
+            Cmd.batch [
+                Cmd.OfPromise.either downloadPost id (Success >> PostChanged) (Failed >> PostChanged)
+                Cmd.OfPromise.either downloadComments id (Success >> CommentsChanged) (Failed >> CommentsChanged) ]
+        let update model = function
+            | PostChanged x -> { model with post = x }, Cmd.none
+            | CommentsChanged x -> 
+                { model with comments = States<_>.map (Array.take 10) x }, Cmd.none
 
     module View =
         open Fable.React
@@ -53,14 +64,11 @@ module PostScreen =
         open Fable.MaterialUI.Core
 
         let viewPost (i : Post) =
-            card [] [
-                cardContent [] [
-                    typography [ Variant TypographyVariant.H6 ] [ 
-                        str i.title ]
-                    typography [ Variant TypographyVariant.Subtitle1 ] [ 
-                        str i.body ] ]
-                cardActions [] [
-                    button [ ButtonProp.Size ButtonSize.Small ] [ str "Learn more" ] ] ]
+            fragment [] [
+                typography [ Variant TypographyVariant.H6 ] [ 
+                    str i.title ]
+                typography [ Variant TypographyVariant.Subtitle1 ] [ 
+                    str i.body ] ]
 
         let viewContent model =
             match model with
@@ -70,19 +78,33 @@ module PostScreen =
             | Success p -> viewPost p
             | Failed _ -> div [] []
 
-        let view (model: Domain.Model) _ =
+        let viewComment (c : Comment) = 
+            typography [ Variant TypographyVariant.Subtitle1 ] [ 
+                str c.body ]
+
+        let viewComments = function
+            | Loading -> 
+                div [ Style [ Display DisplayOptions.Flex; JustifyContent "center" ] ] [
+                    circularProgress [ LinearProgressProp.Color LinearProgressColor.Secondary ] ]
+            | Success commnets -> 
+                list [] [ yield! commnets |> Array.map (fun x -> listItem [ ListItemProp.Divider true ] [ viewComment x ]) ]
+            | Failed _ -> div [] []
+
+        let view (model : Model) _ =
             fragment [] [
                 Styles.appBar "Post"
                 div [ Style [ PaddingTop 60 ] ] [
-                    viewContent model ] ]
+                    viewContent model.post
+                    typography [ Variant TypographyVariant.H6 ] [ str "Comments:" ]
+                    viewComments model.comments ] ]
 
 module FeedScreen =
+    type Model = Post [] States
+    type Msg = PostsLoaded of Result<Post [], exn> | OpenPost of int
+
     module Domain =
         open Fetch
         open Elmish
-
-        type Model = Post [] States
-        type Msg = PostsLoaded of Result<Post [], exn> | OpenPost of int
 
         let downloadPosts() =
             fetch "https://jsonplaceholder.typicode.com/posts" []
@@ -92,7 +114,7 @@ module FeedScreen =
             Loading, Cmd.OfPromise.either downloadPosts () (Ok >> PostsLoaded) (Error >> PostsLoaded)
 
         let update model = function
-            | OpenPost id -> model, Navigation.Navigation.modifyUrl ^ sprintf "/post/%i" id
+            | OpenPost id -> model, Navigation.Navigation.newUrl ^ sprintf "#post/%i" id
             | PostsLoaded (Ok posts) -> Success posts, Cmd.none
             | PostsLoaded (Error e) -> Failed e, Cmd.none
 
@@ -102,7 +124,7 @@ module FeedScreen =
         open Fable.MaterialUI.Props
         open Fable.MaterialUI.Core
 
-        let viewItem (i : Post) =
+        let viewItem dispatch (i : Post) =
             card [] [
                 cardContent [] [
                     typography [ Variant TypographyVariant.H6 ] [ 
@@ -112,10 +134,10 @@ module FeedScreen =
                 cardActions [] [
                     button 
                         [ ButtonProp.Size ButtonSize.Small
-                          Href ^ sprintf "#post/%i" i.id ] [ 
+                          OnClick ^ fun _ -> dispatch ^ OpenPost i.id ] [ 
                         str "Learn more" ] ] ]
 
-        let contentView model =
+        let contentView model dispatch =
             div [ Style [ PaddingTop 60; PaddingBottom 50 ] ] [
                 yield
                     match model with
@@ -124,17 +146,17 @@ module FeedScreen =
                             if model = Loading then
                                 yield circularProgress [ LinearProgressProp.Color LinearProgressColor.Secondary ] ]
                     | Success posts ->
-                        list [] [ yield! posts |> Array.map (fun x -> listItem [] [ viewItem x ]) ]
+                        list [] [ yield! posts |> Array.map (fun x -> listItem [] [ viewItem dispatch x ]) ]
                     | Failed _ -> div [] []
                 yield
                     snackbar 
                         [ Open ^ match model with Failed _ -> true | _ -> false
                           Message ^ str "Error" ] [] ]
 
-        let view model _ =
+        let view model dispatch =
             fragment [] [
                 Styles.appBar "Posts"
-                contentView model
+                contentView model dispatch
                 appBar 
                     [ Style [ Bottom 0; Top "auto" ]
                       AppBarProp.Position AppBarPosition.Fixed ] [
@@ -150,12 +172,12 @@ module Routing =
 
     type Route = Posts | Post of int
     type Model =
-        | PostModel of PostScreen.Domain.Model
-        | PostsModel of FeedScreen.Domain.Model
+        | PostModel of PostScreen.Model
+        | PostsModel of FeedScreen.Model
         | NoneModel
     type Msg =
-        | PostMsg of PostScreen.Domain.Msg
-        | PostsMsg of FeedScreen.Domain.Msg
+        | PostMsg of PostScreen.Msg
+        | PostsMsg of FeedScreen.Msg
 
     module Domain =
         open Elmish
@@ -177,11 +199,15 @@ module Routing =
             | _ -> model, Cmd.none
     
     module View =
-        let view model _ = 
-            match model with
-            | PostModel m -> PostScreen.View.view m ()
-            | PostsModel m -> FeedScreen.View.view m ()
-            | _ -> failwith "???"
+        open Fable.React
+        open Fable.MaterialUI.Core
+        let view model dispatch =
+            fragment [] [
+                cssBaseline []
+                match model with
+                | PostModel m -> PostScreen.View.view m (PostMsg >> dispatch)
+                | PostsModel m -> FeedScreen.View.view m (PostsMsg >> dispatch)
+                | _ -> failwith "???" ]
 
 open Elmish
 open Elmish.React
