@@ -128,8 +128,8 @@ module FeedScreen =
                     | Failed _ -> div [] []
                 yield
                     snackbar 
-                        [ MaterialProp.Open (match model with Failed _ -> true | _ -> false)
-                          SnackbarProp.Message ^ str "Error" ] [] ]
+                        [ Open ^ match model with Failed _ -> true | _ -> false
+                          Message ^ str "Error" ] [] ]
 
         let view model _ =
             fragment [] [
@@ -149,7 +149,7 @@ module Routing =
     open Elmish.Navigation
 
     type Route = Posts | Post of int
-    type SubModel =
+    type Model =
         | PostModel of PostScreen.Domain.Model
         | PostsModel of FeedScreen.Domain.Model
         | NoneModel
@@ -167,7 +167,7 @@ module Routing =
             | Some Posts -> FeedScreen.Domain.init() |> wrap PostsModel PostsMsg
             | Some (Post id) ->  PostScreen.Domain.init id |> wrap PostModel PostMsg
             | None -> model, Navigation.modifyUrl "#"
-        let init _ = FeedScreen.Domain.init() |> wrap PostsModel PostsMsg
+        let init r = urlUpdate r NoneModel
         let update model msg = 
             match model, msg with
             | PostsModel m, PostsMsg mg ->
