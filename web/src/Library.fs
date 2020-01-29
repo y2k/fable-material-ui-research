@@ -7,6 +7,7 @@ module Prelude =
     let inline (>>=) ma mf = async.Bind(ma, mf)
     let inline (>>-) ma f = async.Bind(ma, f >> async.Return)
     let inline flip f a b = f b a
+    let wrap fmodel fmsg (a, b) = a |> fmodel, b |> Elmish.Cmd.map fmsg
 
 type Post = { userId: int; id: int; title: string; body: string }
 type Comment = { postId: int; id: int; name: string; email: string; body: string }
@@ -166,11 +167,7 @@ module FeedScreen =
                         bottomNavigationAction [ Label ^ str "Messages" ] 
                         bottomNavigationAction [ Label ^ str "Profile" ] ] ] ]
 
-module Routing =
-    open Elmish.UrlParser
-    open Elmish.Navigation
-
-    type Route = Posts | Post of int
+module Application =
     type Model =
         | PostModel of PostScreen.Model
         | PostsModel of FeedScreen.Model
@@ -180,10 +177,13 @@ module Routing =
         | PostsMsg of FeedScreen.Msg
 
     module Domain =
+        open Elmish.UrlParser
+        open Elmish.Navigation
         open Elmish
     
+        type Route = Posts | Post of int
+
         let route = oneOf [ map Post (s "post" </> i32); map Posts top ]
-        let wrap fmodel fmsg (a, b) = a |> fmodel, b |> Cmd.map fmsg
         let urlUpdate (result: Route option) model = 
             match result with
             | Some Posts -> FeedScreen.Domain.init() |> wrap PostsModel PostsMsg
@@ -204,10 +204,10 @@ module Routing =
         let view model dispatch =
             fragment [] [
                 cssBaseline []
-                match model with
-                | PostModel m -> PostScreen.View.view m (PostMsg >> dispatch)
-                | PostsModel m -> FeedScreen.View.view m (PostsMsg >> dispatch)
-                | _ -> failwith "???" ]
+                (match model with
+                 | PostModel m -> PostScreen.View.view m (PostMsg >> dispatch)
+                 | PostsModel m -> FeedScreen.View.view m (PostsMsg >> dispatch)
+                 | _ -> failwith "???") ]
 
 open Elmish
 open Elmish.React
@@ -215,8 +215,8 @@ open Elmish.Navigation
 open Elmish.UrlParser
 open Elmish.HMR
 
-Program.mkProgram Routing.Domain.init (flip Routing.Domain.update) Routing.View.view
-|> Program.toNavigable (parseHash Routing.Domain.route) Routing.Domain.urlUpdate
+Program.mkProgram Application.Domain.init (flip Application.Domain.update) Application.View.view
+|> Program.toNavigable (parseHash Application.Domain.route) Application.Domain.urlUpdate
 |> Program.withReactSynchronous "elmish-app"
 |> Program.withConsoleTrace
 |> Program.run

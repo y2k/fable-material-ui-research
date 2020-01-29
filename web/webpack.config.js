@@ -14,6 +14,7 @@ module.exports = {
         hot: true,
         inline: true
     },
+    devtool: "source-map",
     module: {
         rules: [{
             test: /\.fs(x|proj)?$/,
