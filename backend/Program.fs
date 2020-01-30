@@ -1,25 +1,18 @@
-﻿open System
-
-[<AutoOpen>]
-module Prelude =
-    let inline (^) f x = f x
-    let inline (<!) f a () = f a
-    let inline (>>=) ma mf = async.Bind(ma, mf)
-    let inline (>>-) ma f = async.Bind(ma, f >> async.Return)
-    let inline flip f a b = f b a
-    // let wrap fmodel fmsg (a, b) = a |> fmodel, b |> Elmish.Cmd.map fmsg
-
-type Post = { userId: int; id: int; title: string; body: string }
-type Comment = { postId: int; id: int; name: string; email: string; body: string }
-type 'a States = Loading | Failed of exn | Success of 'a
-    with static member map f = function Success x -> Success ^ f x | x -> x
+﻿module MaterialUiResearch.Backend
 
 module Fetch =
-    let fetch<'a> _url _ : 'a Async = failwith "???"
+    let fetch<'a> (url: string) _ : 'a Async = async {
+        use client = new System.Net.WebClient()
+        let! json = client.DownloadStringTaskAsync url |> Async.AwaitTask
+        let result = Newtonsoft.Json.JsonConvert.DeserializeObject<'a>(json)
+        return result }
+
+module Navigation =
+    module Navigation =
+        let newUrl _ : Elmish.Cmd<_> = []
 
 module PostScreen =
-    type Model = { post: Post States; comments: Comment [] States }
-    type Msg =  PostChanged of Post States | CommentsChanged of Comment [] States
+    open MaterialUiResearch.PostScreen
 
     module Domain =
         open Fetch
@@ -41,7 +34,47 @@ module PostScreen =
             | CommentsChanged x -> 
                 { model with comments = States<_>.map (Array.take 10) x }, Cmd.none
 
+module FeedScreen =
+    open MaterialUiResearch.FeedScreen
+
+    module Domain =
+        open Fetch
+        open Elmish
+
+        let downloadPosts() =
+            fetch<Post []> "https://jsonplaceholder.typicode.com/posts" []
+
+        let init _ = 
+            Loading, Cmd.OfAsync.either downloadPosts () (Ok >> PostsLoaded) (Error >> PostsLoaded)
+
+        let update model = function
+            | OpenPost id -> model, Navigation.Navigation.newUrl ^ sprintf "#post/%i" id
+            | PostsLoaded (Ok posts) -> Success posts, Cmd.none
+            | PostsLoaded (Error e) -> Failed e, Cmd.none
+
+module Application =
+    open MaterialUiResearch.Application
+
+    module Domain =
+        open Elmish
+    
+        type Route = Posts | Post of int
+
+        let init _ = FeedScreen.Domain.init() |> wrap PostsModel PostsMsg
+        let update model msg = 
+            match model, msg with
+            | PostsModel m, PostsMsg mg ->
+                FeedScreen.Domain.update m mg |> wrap PostsModel PostsMsg
+            | PostModel m, PostMsg mg ->
+                PostScreen.Domain.update m mg |> wrap PostModel PostMsg
+            | _ -> model, Cmd.none
+
 [<EntryPoint>]
 let main _ =
-    printfn "Start"
+    let (model, cmd) = Application.Domain.init None
+    printfn "LOG 1 :: %O" model
+    for sub in cmd do
+        printfn "LOG 2 :: %O" sub
+        sub ^ fun msg -> printfn "LOG 3 :: %s" ^ (sprintf "%O" msg).Substring(0, 512)
+    System.Threading.Thread.Sleep 5_000
     0
