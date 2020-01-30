@@ -7,7 +7,9 @@ module Prelude =
     let inline (>>=) ma mf = async.Bind(ma, mf)
     let inline (>>-) ma f = async.Bind(ma, f >> async.Return)
     let inline flip f a b = f b a
-    let wrap fmodel fmsg (a, b) = a |> fmodel, b |> Elmish.Cmd.map fmsg
+    let inline wrap fmodel fmsg (a, b) = a |> fmodel, b |> Elmish.Cmd.map fmsg
+    let inline fst (a, _) = a
+    let inline snd (_, b) = b
 
 type Post = { userId: int; id: int; title: string; body: string }
 type Comment = { postId: int; id: int; name: string; email: string; body: string }

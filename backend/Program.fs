@@ -69,6 +69,19 @@ module Application =
                 PostScreen.Domain.update m mg |> wrap PostModel PostMsg
             | _ -> model, Cmd.none
 
+module Server =
+    open Suave
+    open Suave.Successful
+
+    let start =
+        let route =
+            request ^ fun _r ->
+                Suave.Json.mapJson (fun (_x : string) -> 0)
+                |> ignore
+                OK ""
+
+        startWebServerAsync defaultConfig route |> snd
+
 [<EntryPoint>]
 let main _ =
     let (model, cmd) = Application.Domain.init None

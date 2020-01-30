@@ -120,6 +120,7 @@ module Application =
     module View =
         open Fable.React
         open Fable.MaterialUI.Core
+
         let view model dispatch =
             fragment [] [
                 cssBaseline []
@@ -129,14 +130,20 @@ module Application =
                  | _ -> failwith "???") ]
 
 module Proxy =
-    let init _ = failwith "???"
-    let update _ _ = failwith "???"
+    open Elmish
+
+    type Model = Application.Model
+    type Msg = SubMsg of Application.Msg | ModelUpdated of Model
+
+    let init () : Model * Cmd<Msg> = failwith "???"
+    let update (_msg : Msg) (_model : Model) : Model * Cmd<Msg> = failwith "???"
+    let view model dispatch = Application.View.view model (SubMsg >> dispatch)
 
 open Elmish
 open Elmish.React
 open Elmish.HMR
 
-Program.mkProgram Proxy.init Proxy.update Application.View.view
+Program.mkProgram Proxy.init Proxy.update Proxy.view
 |> Program.withReactSynchronous "elmish-app"
 |> Program.withConsoleTrace
 |> Program.run
