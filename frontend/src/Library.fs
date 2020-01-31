@@ -153,12 +153,23 @@ module Proxy =
                     let! json = response.text()
                     let model = Decode.Auto.fromString json |> function Ok x -> x | Error e -> failwith e
                     dispatch ^ ModelUpdated model
+
+                    let serMsg = Encode.Auto.toString (0, msg)
+                    let! response = fetch "http://localhost:8081/update-cmd" [ Body !^ serMsg; Method HttpMethod.POST ]
+                    let! json = response.text()
+                    let model = Decode.Auto.fromString json |> function Ok x -> x | Error e -> failwith e
+                    dispatch ^ ModelUpdated model
                 } |> Promise.start
 
     let sub _ : Cmd<Msg> =
         Cmd.ofSub ^ fun dispatch -> 
             promise {
                 let! response = fetch "http://localhost:8081/init" [ Method HttpMethod.POST ]
+                let! json = response.text()
+                let model = Decode.Auto.fromString json |> function Ok x -> x | Error e -> failwith e
+                dispatch ^ ModelUpdated model
+
+                let! response = fetch "http://localhost:8081/init-cmd" [ Method HttpMethod.POST ]
                 let! json = response.text()
                 let model = Decode.Auto.fromString json |> function Ok x -> x | Error e -> failwith e
                 dispatch ^ ModelUpdated model
@@ -172,30 +183,6 @@ module Proxy =
 open Elmish
 open Elmish.React
 open Elmish.HMR
-
-// module Foo =
-//     let foo _ =
-//         FeedScreen.OpenPost 99
-//         |> Application.PostsMsg
-//         // |> Fable.Core.JS.JSON.stringify
-//         |> fun x -> Thoth.Json.Encode.Auto.toString(0, x)
-//         |> fun x -> Thoth.Json.Decode.Auto.fromString(x)
-//         |> function Ok x -> x | _ -> failwith "???"
-//         // |> printfn "RESULT 1 = %O"
-
-//         // // """{"PostsMsg":{"OpenPost":99}}"""
-//         // // """["PostsMsg", ["OpenPost", 99]]"""
-//         // """["PostsMsg",["OpenPost",99]]"""
-//         // |> fun x -> 
-//         //     let r : Application.Msg = Fable.Core.JS.JSON.parse(x) |> unbox
-//         //     r
-//         |> function 
-//            | Application.PostMsg x -> "PostMsg"
-//            | Application.PostsMsg (FeedScreen.OpenPost x) -> sprintf "PostsMsg/OpenPost/%O" x
-//            | _ -> failwith "???"
-//         |> printfn "RESULT = %O"
-
-// // Foo.foo()
 
 Program.mkProgram Proxy.init Proxy.update Proxy.view
 |> Program.withSubscription Proxy.sub

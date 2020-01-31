@@ -52,6 +52,9 @@ module FeedScreen =
             | PostsLoaded (Error e) -> Failed e, Cmd.none
             | OpenPost _ -> model, []
 
+module String =
+    let take n (s : string) = s.Substring(0, min n s.Length)
+
 module Application =
     open MaterialUiResearch.FeedScreen
     open MaterialUiResearch.Application
@@ -62,7 +65,7 @@ module Application =
         type Route = Posts | Post of int
 
         let init _ = FeedScreen.Domain.init() |> wrap PostsModel PostsMsg
-        let update model msg = 
+        let update model msg =
             match model, msg with
             | _, PostsMsg (OpenPost id) -> 
                 PostScreen.Domain.init id |> wrap PostModel PostMsg
@@ -81,10 +84,13 @@ module Server =
 
     let model = Application.Domain.init () |> fst |> ref
 
-    let private initRoute =
+    let private initRoute = 
+        request ^ fun _ -> Encode.Auto.toString(0, !model) |> OK
+
+    let private initRouteCmd =
         request ^ fun _ ctx ->
             async {
-                do! Async.FromContinuations ^ fun (succ, err, _) ->
+                do! Async.FromContinuations ^ fun (succ, _, _) ->
                         let cmdsInQueue = ref 0
                         let rec invokeCmds cmd =
                             cmdsInQueue := !cmdsInQueue + (List.length cmd)
@@ -96,14 +102,11 @@ module Server =
                                     cmdsInQueue := !cmdsInQueue - 1
                                     if !cmdsInQueue = 0 then succ ()
                         
-                        Application.Domain.init () 
-                        |> snd
-                        |> invokeCmds
+                        let (m, cmd) = Application.Domain.init () 
+                        model := m
+                        invokeCmds cmd
 
-                return!
-                    Encode.Auto.toString(0, !model)
-                    |> OK
-                    |> fun wp -> wp ctx }
+                return! Encode.Auto.toString(0, !model) |> OK |> fun wp -> wp ctx }
 
     let private updateRoute = 
         request ^ fun r ctx ->
@@ -114,7 +117,19 @@ module Server =
                     |> Decode.Auto.fromString<Application.Msg>
                     |> function Ok x -> x | Error e -> failwith e
 
-                do! Async.FromContinuations ^ fun (succ, err, _) ->
+                let (m, _) = Application.Domain.update !model initMsg
+                return! Encode.Auto.toString(0, m) |> OK |> fun wp -> wp ctx }
+
+    let private updateRouteCmd = 
+        request ^ fun r ctx ->
+            async {
+                let initMsg =
+                    r.rawForm 
+                    |> System.Text.Encoding.UTF8.GetString
+                    |> Decode.Auto.fromString<Application.Msg>
+                    |> function Ok x -> x | Error e -> failwith e
+
+                do! Async.FromContinuations ^ fun (succ, _, _) ->
                         let cmdsInQueue = ref 0
                         let rec invokeCmds cmd =
                             cmdsInQueue := !cmdsInQueue + (List.length cmd)
@@ -127,19 +142,18 @@ module Server =
                                     cmdsInQueue := !cmdsInQueue - 1
                                     if !cmdsInQueue = 0 then succ ()
                         
-                        Application.Domain.update !model initMsg
-                        |> snd
-                        |> invokeCmds
+                        let (m, cmd) = Application.Domain.update !model initMsg
+                        model := m
+                        invokeCmds cmd
 
-                return!
-                    Encode.Auto.toString(0, !model)
-                    |> OK
-                    |> fun wp -> wp ctx }
+                return! Encode.Auto.toString(0, !model) |> OK |> fun wp -> wp ctx }
 
     let start =
         choose [
             POST >=> path "/init" >=> initRoute
-            POST >=> path "/update" >=> updateRoute ]
+            POST >=> path "/init-cmd" >=> initRouteCmd
+            POST >=> path "/update" >=> updateRoute
+            POST >=> path "/update-cmd" >=> updateRouteCmd ]
         |> startWebServerAsync { defaultConfig with bindings = [ HttpBinding.createSimple HTTP "0.0.0.0" 8081 ] }
         |> snd
 
