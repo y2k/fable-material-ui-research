@@ -48,11 +48,12 @@ module FeedScreen =
             Loading, Cmd.OfAsync.either downloadPosts () (Ok >> PostsLoaded) (Error >> PostsLoaded)
 
         let update model = function
-            | OpenPost id -> model, Navigation.Navigation.newUrl ^ sprintf "#post/%i" id
             | PostsLoaded (Ok posts) -> Success posts, Cmd.none
             | PostsLoaded (Error e) -> Failed e, Cmd.none
+            | OpenPost _ -> model, []
 
 module Application =
+    open MaterialUiResearch.FeedScreen
     open MaterialUiResearch.Application
 
     module Domain =
@@ -63,6 +64,8 @@ module Application =
         let init _ = FeedScreen.Domain.init() |> wrap PostsModel PostsMsg
         let update model msg = 
             match model, msg with
+            | _, PostsMsg (OpenPost id) -> 
+                PostScreen.Domain.init id |> wrap PostModel PostMsg
             | PostsModel m, PostsMsg mg ->
                 FeedScreen.Domain.update m mg |> wrap PostsModel PostsMsg
             | PostModel m, PostMsg mg ->
@@ -72,22 +75,75 @@ module Application =
 module Server =
     open Suave
     open Suave.Successful
+    open Suave.Filters
+    open Suave.Operators
+    open Thoth.Json.Net
+
+    let model = Application.Domain.init () |> fst |> ref
+
+    let private initRoute =
+        request ^ fun _ ctx ->
+            async {
+                do! Async.FromContinuations ^ fun (succ, err, _) ->
+                        let cmdsInQueue = ref 0
+                        let rec invokeCmds cmd =
+                            cmdsInQueue := !cmdsInQueue + (List.length cmd)
+                            for sub in cmd do
+                                sub ^ fun msg -> 
+                                    let (m, c) = Application.Domain.update !model msg
+                                    model := m
+                                    invokeCmds c
+                                    cmdsInQueue := !cmdsInQueue - 1
+                                    if !cmdsInQueue = 0 then succ ()
+                        
+                        Application.Domain.init () 
+                        |> snd
+                        |> invokeCmds
+
+                return!
+                    Encode.Auto.toString(0, !model)
+                    |> OK
+                    |> fun wp -> wp ctx }
+
+    let private updateRoute = 
+        request ^ fun r ctx ->
+            async {
+                let initMsg =
+                    r.rawForm 
+                    |> System.Text.Encoding.UTF8.GetString
+                    |> Decode.Auto.fromString<Application.Msg>
+                    |> function Ok x -> x | Error e -> failwith e
+
+                do! Async.FromContinuations ^ fun (succ, err, _) ->
+                        let cmdsInQueue = ref 0
+                        let rec invokeCmds cmd =
+                            cmdsInQueue := !cmdsInQueue + (List.length cmd)
+                            if !cmdsInQueue = 0 then succ ()
+                            for sub in cmd do
+                                sub ^ fun msg -> 
+                                    let (m, c) = Application.Domain.update !model msg
+                                    model := m
+                                    invokeCmds c
+                                    cmdsInQueue := !cmdsInQueue - 1
+                                    if !cmdsInQueue = 0 then succ ()
+                        
+                        Application.Domain.update !model initMsg
+                        |> snd
+                        |> invokeCmds
+
+                return!
+                    Encode.Auto.toString(0, !model)
+                    |> OK
+                    |> fun wp -> wp ctx }
 
     let start =
-        let route =
-            request ^ fun _r ->
-                Suave.Json.mapJson (fun (_x : string) -> 0)
-                |> ignore
-                OK ""
-
-        startWebServerAsync defaultConfig route |> snd
+        choose [
+            POST >=> path "/init" >=> initRoute
+            POST >=> path "/update" >=> updateRoute ]
+        |> startWebServerAsync { defaultConfig with bindings = [ HttpBinding.createSimple HTTP "0.0.0.0" 8081 ] }
+        |> snd
 
 [<EntryPoint>]
 let main _ =
-    let (model, cmd) = Application.Domain.init None
-    printfn "LOG 1 :: %O" model
-    for sub in cmd do
-        printfn "LOG 2 :: %O" sub
-        sub ^ fun msg -> printfn "LOG 3 :: %s" ^ (sprintf "%O" msg).Substring(0, 512)
-    System.Threading.Thread.Sleep 5_000
+    Async.RunSynchronously Server.start
     0

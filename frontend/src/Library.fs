@@ -130,20 +130,75 @@ module Application =
                  | _ -> failwith "???") ]
 
 module Proxy =
+    open Thoth.Json
     open Elmish
+    open Fable.Core.JsInterop
+    open Fable.React
+    open Fetch
 
-    type Model = Application.Model
-    type Msg = SubMsg of Application.Msg | ModelUpdated of Model
+    type Model = Application.Model option
+    type Msg = SubMsg of Application.Msg | ModelUpdated of Application.Model
 
-    let init () : Model * Cmd<Msg> = failwith "???"
-    let update (_msg : Msg) (_model : Model) : Model * Cmd<Msg> = failwith "???"
-    let view model dispatch = Application.View.view model (SubMsg >> dispatch)
+    let init () : Model * Cmd<Msg> = None, []
+
+    let update (msg : Msg) (model : Model) : Model * Cmd<Msg> =
+        match msg with
+        | ModelUpdated model -> Some model, []
+        | SubMsg msg ->
+            model,
+            Cmd.ofSub ^ fun dispatch -> 
+                promise {
+                    let serMsg = Encode.Auto.toString (0, msg)
+                    let! response = fetch "http://localhost:8081/update" [ Body !^ serMsg; Method HttpMethod.POST ]
+                    let! json = response.text()
+                    let model = Decode.Auto.fromString json |> function Ok x -> x | Error e -> failwith e
+                    dispatch ^ ModelUpdated model
+                } |> Promise.start
+
+    let sub _ : Cmd<Msg> =
+        Cmd.ofSub ^ fun dispatch -> 
+            promise {
+                let! response = fetch "http://localhost:8081/init" [ Method HttpMethod.POST ]
+                let! json = response.text()
+                let model = Decode.Auto.fromString json |> function Ok x -> x | Error e -> failwith e
+                dispatch ^ ModelUpdated model
+            } |> Promise.start
+
+    let view model dispatch =
+        match model with 
+        | Some model -> Application.View.view model (SubMsg >> dispatch)
+        | None -> str "Loading..."
 
 open Elmish
 open Elmish.React
 open Elmish.HMR
 
+// module Foo =
+//     let foo _ =
+//         FeedScreen.OpenPost 99
+//         |> Application.PostsMsg
+//         // |> Fable.Core.JS.JSON.stringify
+//         |> fun x -> Thoth.Json.Encode.Auto.toString(0, x)
+//         |> fun x -> Thoth.Json.Decode.Auto.fromString(x)
+//         |> function Ok x -> x | _ -> failwith "???"
+//         // |> printfn "RESULT 1 = %O"
+
+//         // // """{"PostsMsg":{"OpenPost":99}}"""
+//         // // """["PostsMsg", ["OpenPost", 99]]"""
+//         // """["PostsMsg",["OpenPost",99]]"""
+//         // |> fun x -> 
+//         //     let r : Application.Msg = Fable.Core.JS.JSON.parse(x) |> unbox
+//         //     r
+//         |> function 
+//            | Application.PostMsg x -> "PostMsg"
+//            | Application.PostsMsg (FeedScreen.OpenPost x) -> sprintf "PostsMsg/OpenPost/%O" x
+//            | _ -> failwith "???"
+//         |> printfn "RESULT = %O"
+
+// // Foo.foo()
+
 Program.mkProgram Proxy.init Proxy.update Proxy.view
+|> Program.withSubscription Proxy.sub
 |> Program.withReactSynchronous "elmish-app"
 |> Program.withConsoleTrace
 |> Program.run

@@ -10,6 +10,8 @@ module Prelude =
     let inline wrap fmodel fmsg (a, b) = a |> fmodel, b |> Elmish.Cmd.map fmsg
     let inline fst (a, _) = a
     let inline snd (_, b) = b
+    [<System.Obsolete>]
+    let TODO() = failwith "???"
 
 type Post = { userId: int; id: int; title: string; body: string }
 type Comment = { postId: int; id: int; name: string; email: string; body: string }
