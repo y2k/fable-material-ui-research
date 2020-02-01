@@ -7,10 +7,6 @@ module Fetch =
         let result = Newtonsoft.Json.JsonConvert.DeserializeObject<'a>(json)
         return result }
 
-module Navigation =
-    module Navigation =
-        let newUrl _ : Elmish.Cmd<_> = []
-
 module PostScreen =
     open MaterialUiResearch.PostScreen
 
