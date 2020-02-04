@@ -19,14 +19,47 @@ module Store =
     let update (_: Db -> Db) : Db Async = failwith "???"
 
 module StoreHandle =
-    let handle _ = async {
+    open System
+
+    let convert<'a> (_json: string) : 'a = failwith "???"
+
+    type RequestTag = PostsRequest | CommentRequest of int
+
+    let mkRequests (db: Store.Db) = function
+        | PostsRequest, json -> 
+            let posts = convert<Post []> json
+            { db with posts = posts }
+        | CommentRequest id, json -> 
+            let comments = convert<Comment []> json
+            { db with comments = Map.add id comments db.comments }
+
+    let mkRequest (db: Store.Db) =
+        let needDownloadComments =
+            db.comments 
+            |> Map.filter (fun k v -> Seq.isEmpty v) 
+            |> Map.toList
+            |> List.map ^ fun (k, _) -> k
+
+        [ if Array.isEmpty db.posts then
+              yield PostsRequest, Uri "https://jsonplaceholder.typicode.com/posts"
+          for i in needDownloadComments do
+              yield CommentRequest i, Uri ^ sprintf "https://jsonplaceholder.typicode.com/posts/%i/comments" i ]
+
+    let handle mkRequests handleResponse = async {
         let! db = Store.update id
-        if Array.isEmpty db.posts then
-            use client = new System.Net.Http.HttpClient()
-            let! json = client.GetStringAsync "https://jsonplaceholder.typicode.com/posts" |> Async.AwaitTask
-            // let! r = fetch "https://jsonplaceholder.typicode.com/posts" [] |> Async.AwaitPromise
-            // return! r.json<Post []>() |> Async.AwaitPromise }
-            () }
+        use client = new Net.Http.HttpClient()
+
+        let requests = mkRequests db
+
+        let! responses =
+            requests
+            |> List.map ^ fun (tag, uri: Uri) ->
+                client.GetStringAsync uri |> Async.AwaitTask
+                >>- fun json -> tag, json
+            |> Async.Sequential
+
+        let! _ = Store.update ^ fun db -> responses |> Array.fold handleResponse db
+        () }
 
 module Styles =
     open Fable.React
