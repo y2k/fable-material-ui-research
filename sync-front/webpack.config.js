@@ -3,7 +3,7 @@ var webpack = require("webpack");
 
 module.exports = {
     mode: "development",
-    entry: "./src/web.fsproj",
+    entry: "./src/sync-front.fsproj",
     output: {
         path: path.join(__dirname, "./public"),
         filename: "bundle.js",

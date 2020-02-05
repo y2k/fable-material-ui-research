@@ -15,8 +15,27 @@ type 'a States = Loading | Failed of exn | Success of 'a
     with static member map f = function Success x -> Success ^ f x | x -> x
 
 module Store =
+    open Thoth.Json
+    open Fable.Core
+    open Fable.Core.JsInterop
+    open Fetch
+
     type Db = { started: bool; posts: Post []; comments: Map<int, Comment []> }
-    let update (_: Db -> Db) : Db Async = failwith "???"
+
+    let private db = ref { started = false; posts = [||]; comments = Map.empty }
+
+    let update (f: Db -> Db) : Db Async = 
+        async {
+            let db2 = f !db
+            let serMsg = Encode.Auto.toString (0, db2)
+            let! response = 
+                fetch "http://localhost:8081/update" [ Body !^ serMsg; Method HttpMethod.POST ]
+                |> Async.AwaitPromise
+            let! json = response.text() |> Async.AwaitPromise
+            let db3 : Db = Decode.Auto.fromString json |> function Ok x -> x | Error e -> failwith e
+            db := db3
+            return db3
+        }
 
 module Styles =
     open Fable.React
