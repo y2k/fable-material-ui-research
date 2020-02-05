@@ -18,49 +18,6 @@ module Store =
     type Db = { started: bool; posts: Post []; comments: Map<int, Comment []> }
     let update (_: Db -> Db) : Db Async = failwith "???"
 
-module StoreHandle =
-    open System
-
-    let convert<'a> (_json: string) : 'a = failwith "???"
-
-    type RequestTag = PostsRequest | CommentRequest of int
-
-    let mkRequests (db: Store.Db) = function
-        | PostsRequest, json -> 
-            let posts = convert<Post []> json
-            { db with posts = posts }
-        | CommentRequest id, json -> 
-            let comments = convert<Comment []> json
-            { db with comments = Map.add id comments db.comments }
-
-    let mkRequest (db: Store.Db) =
-        let needDownloadComments =
-            db.comments 
-            |> Map.filter (fun k v -> Seq.isEmpty v) 
-            |> Map.toList
-            |> List.map ^ fun (k, _) -> k
-
-        [ if Array.isEmpty db.posts then
-              yield PostsRequest, Uri "https://jsonplaceholder.typicode.com/posts"
-          for i in needDownloadComments do
-              yield CommentRequest i, Uri ^ sprintf "https://jsonplaceholder.typicode.com/posts/%i/comments" i ]
-
-    let handle mkRequests handleResponse = async {
-        let! db = Store.update id
-        use client = new Net.Http.HttpClient()
-
-        let requests = mkRequests db
-
-        let! responses =
-            requests
-            |> List.map ^ fun (tag, uri: Uri) ->
-                client.GetStringAsync uri |> Async.AwaitTask
-                >>- fun json -> tag, json
-            |> Async.Sequential
-
-        let! _ = Store.update ^ fun db -> responses |> Array.fold handleResponse db
-        () }
-
 module Styles =
     open Fable.React
     open Fable.React.Props
@@ -85,27 +42,21 @@ module PostScreen =
     type Msg = PostChanged of Post States | CommentsChanged of Comment [] States
 
     module Domain =
-        open Fetch
         open Elmish
 
-        // let download<'a> url = 
-        //     sprintf "https://jsonplaceholder.typicode.com%s" url
-        //     |> flip fetch []
-        //     |> Promise.bind ^ fun r -> r.json<'a>()
-        // let downloadPost = sprintf "/posts/%i" >> download<Post>
-        // let downloadComments = sprintf "/posts/%i/comments" >> download<Comment []>
-        let downloadPost' postId =
-            Store.update id
-            >>- fun db -> db.posts |> Array.find (fun x -> x.id = postId)
-        let downloadComments' postId =
-            Store.update ^ fun db -> { db with comments = Map.add postId [||] db.comments }
-            >>- fun db -> Map.find postId db.comments
-
-        let init id = 
+        let init postId = 
+            let downloadPost postId =
+                Store.update id
+                >>- fun db -> db.posts |> Array.find (fun x -> x.id = postId)
+            let downloadComments postId =
+                Store.update ^ fun db -> { db with comments = Map.add postId [||] db.comments }
+                >>- fun db -> Map.find postId db.comments
+    
             { post = Loading; comments = Loading },
             Cmd.batch [
-                Cmd.OfAsync.either downloadPost' id (Success >> PostChanged) (Failed >> PostChanged)
-                Cmd.OfAsync.either downloadComments' id (Success >> CommentsChanged) (Failed >> CommentsChanged) ]
+                Cmd.OfAsync.either downloadPost postId (Success >> PostChanged) (Failed >> PostChanged)
+                Cmd.OfAsync.either downloadComments postId (Success >> CommentsChanged) (Failed >> CommentsChanged) ]
+
         let update model = function
             | PostChanged x -> { model with post = x }, Cmd.none
             | CommentsChanged x -> 
@@ -157,15 +108,11 @@ module FeedScreen =
     type Msg = PostsLoaded of Result<Post [], exn> | OpenPost of int
 
     module Domain =
-        open Fetch
-        open Fable.Core
         open Elmish
 
         let downloadPosts() =
             Store.update ^ fun db -> { db with started = true }
             >>- fun db -> db.posts
-            // let! r = fetch "https://jsonplaceholder.typicode.com/posts" [] |> Async.AwaitPromise
-            // return! r.json<Post []>() |> Async.AwaitPromise }
 
         let init _ = 
             Loading, Cmd.OfAsync.either downloadPosts () (Ok >> PostsLoaded) (Error >> PostsLoaded)

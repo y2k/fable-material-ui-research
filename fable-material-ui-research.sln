@@ -19,6 +19,8 @@ Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "sync-front", "sync-front", 
 EndProject
 Project("{F2A71F9B-5D33-465A-A702-920D77279786}") = "sync-front", "sync-front\src\sync-front.fsproj", "{2A714C8D-CA2C-4DEA-95CE-D3A7F93BC6C1}"
 EndProject
+Project("{F2A71F9B-5D33-465A-A702-920D77279786}") = "sync-back", "sync-back\sync-back.fsproj", "{971F0B59-944B-41E5-973A-B2972A1ED30D}"
+EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|Any CPU = Debug|Any CPU
@@ -92,6 +94,18 @@ Global
 		{2A714C8D-CA2C-4DEA-95CE-D3A7F93BC6C1}.Release|x64.Build.0 = Release|Any CPU
 		{2A714C8D-CA2C-4DEA-95CE-D3A7F93BC6C1}.Release|x86.ActiveCfg = Release|Any CPU
 		{2A714C8D-CA2C-4DEA-95CE-D3A7F93BC6C1}.Release|x86.Build.0 = Release|Any CPU
+		{971F0B59-944B-41E5-973A-B2972A1ED30D}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{971F0B59-944B-41E5-973A-B2972A1ED30D}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{971F0B59-944B-41E5-973A-B2972A1ED30D}.Debug|x64.ActiveCfg = Debug|Any CPU
+		{971F0B59-944B-41E5-973A-B2972A1ED30D}.Debug|x64.Build.0 = Debug|Any CPU
+		{971F0B59-944B-41E5-973A-B2972A1ED30D}.Debug|x86.ActiveCfg = Debug|Any CPU
+		{971F0B59-944B-41E5-973A-B2972A1ED30D}.Debug|x86.Build.0 = Debug|Any CPU
+		{971F0B59-944B-41E5-973A-B2972A1ED30D}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{971F0B59-944B-41E5-973A-B2972A1ED30D}.Release|Any CPU.Build.0 = Release|Any CPU
+		{971F0B59-944B-41E5-973A-B2972A1ED30D}.Release|x64.ActiveCfg = Release|Any CPU
+		{971F0B59-944B-41E5-973A-B2972A1ED30D}.Release|x64.Build.0 = Release|Any CPU
+		{971F0B59-944B-41E5-973A-B2972A1ED30D}.Release|x86.ActiveCfg = Release|Any CPU
+		{971F0B59-944B-41E5-973A-B2972A1ED30D}.Release|x86.Build.0 = Release|Any CPU
 	EndGlobalSection
 	GlobalSection(NestedProjects) = preSolution
 		{E2D9EB63-3AF2-453A-AEBE-56199DB26117} = {BA44F6D0-26B7-4A30-9AC1-5A8B1D150BD6}
