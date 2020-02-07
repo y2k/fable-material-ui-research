@@ -20,9 +20,9 @@ module Store =
     open Fable.Core.JsInterop
     open Fetch
 
-    type Db = { started: bool; posts: Post []; comments: Map<int, Comment []> }
+    type Db = { posts: Map<unit, Post []>; comments: Map<int, Comment []> }
 
-    let private db = ref { started = false; posts = [||]; comments = Map.empty }
+    let private db = ref { posts = Map.empty; comments = Map.empty }
 
     let update (f: Db -> Db) : Db Async = 
         async {
@@ -66,7 +66,7 @@ module PostScreen =
         let init postId = 
             let downloadPost postId =
                 Store.update id
-                >>- fun db -> db.posts |> Array.find (fun x -> x.id = postId)
+                >>- fun db -> db.posts |> Map.find () |> Array.find (fun x -> x.id = postId)
             let downloadComments postId =
                 Store.update ^ fun db -> { db with comments = Map.add postId [||] db.comments }
                 >>- fun db -> Map.find postId db.comments
@@ -130,8 +130,8 @@ module FeedScreen =
         open Elmish
 
         let downloadPosts() =
-            Store.update ^ fun db -> { db with started = true }
-            >>- fun db -> db.posts
+            Store.update ^ fun db -> { db with posts = Map.add () [||] db.posts }
+            >>- fun db -> db.posts |> Map.find ()
 
         let init _ = 
             Loading, Cmd.OfAsync.either downloadPosts () (Ok >> PostsLoaded) (Error >> PostsLoaded)

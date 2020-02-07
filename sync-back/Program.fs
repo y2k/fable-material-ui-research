@@ -13,7 +13,52 @@ type Post = { userId: int; id: int; title: string; body: string }
 type Comment = { postId: int; id: int; name: string; email: string; body: string }
 
 module Store =
-    type Db = { started: bool; posts: Post []; comments: Map<int, Comment []> }
+    type Db = { posts: Map<unit, Post []>; comments: Map<int, Comment []> }
+
+module StoreSync =
+    module Diff =
+        let diffMapsAdd (ma : Map<'k, 'v>) (mb : Map<'k, 'v>) : Map<'k, 'v>=
+            let added = Map.filter (fun k _ -> Map.containsKey k ma |> not) mb
+            let changed =
+                Map.toSeq ma
+                |> Seq.choose (fun (k, v) -> if Map.containsKey k mb && Map.find k mb <> v then Some (k, Map.find k mb) else None)
+                |> Map.ofSeq
+            Map.fold (fun acc k v -> Map.add k v acc) added changed
+        let diffMapsRemove (ma : Map<'k, 'v>) (mb : Map<'k, 'v>) : Set<'k> =
+            Map.toSeq ma |> Seq.choose (fun (k, _) -> if Map.containsKey k mb then None else Some k) |> Set.ofSeq
+        let diffMaps (ma : Map<'k, 'v>) (mb : Map<'k, 'v>) : Map<'k, 'v> * Set<'k> =
+            let added = Map.filter (fun k _ -> Map.containsKey k ma |> not) mb
+            let removed = Map.toSeq ma |> Seq.choose (fun (k, _) -> if Map.containsKey k mb then None else Some k) |> Set.ofSeq
+            let changed =
+                Map.toSeq ma
+                |> Seq.choose (fun (k, v) -> if Map.containsKey k mb && Map.find k mb <> v then Some (k, Map.find k mb) else None)
+                |> Map.ofSeq
+            Map.fold (fun acc k v -> Map.add k v acc) added changed, removed
+        let applyDiff m changed deleted =
+            let m = deleted |> Set.fold (fun acc k -> Map.remove k acc) m
+            Map.fold (fun acc k v -> Map.add k v acc) m changed
+
+    type SyncDb = 
+        { posts_changed: Map<unit, Post []>
+          posts_removed: Set<unit>
+          comments_changed: Map<int, Comment []>
+          comments_removed: Set<int> }
+    type LocalDb = Store.Db
+
+    open Thoth.Json.Net
+
+    let serializeDiff (a : LocalDb) (b : LocalDb) =
+        { posts_changed = Diff.diffMapsAdd a.posts b.posts
+          posts_removed = Diff.diffMapsRemove a.posts b.posts
+          comments_changed = Diff.diffMapsAdd a.comments b.comments
+          comments_removed = Diff.diffMapsRemove a.comments b.comments }
+        |> fun x -> Encode.Auto.toString (0, x)
+
+    let applyDiff (a : LocalDb) (data : string) : LocalDb =
+        let df = Decode.Auto.unsafeFromString<SyncDb> data
+        { a with
+            posts = Diff.applyDiff a.posts df.posts_changed df.posts_removed
+            comments = Diff.applyDiff a.comments df.comments_changed df.comments_removed }
 
 module StoreHandler =
     open System
@@ -26,7 +71,7 @@ module StoreHandler =
             |> Map.filter (fun _ v -> Seq.isEmpty v) 
             |> Map.toList
             |> List.map ^ fun (k, _) -> k
-        [ if Array.isEmpty db.posts then
+        [ if not ^ Map.isEmpty db.posts then
               yield PostsRequest, Uri "https://jsonplaceholder.typicode.com/posts"
           for i in needDownloadComments do
               yield CommentRequest i, Uri ^ sprintf "https://jsonplaceholder.typicode.com/posts/%i/comments" i ]
@@ -38,7 +83,7 @@ module StoreHandler =
         let handleResponse (db: Store.Db) = function
             | PostsRequest, json -> 
                 let posts = convert<Post []> json
-                { db with posts = posts }
+                { db with posts = Map.add () posts db.posts }
             | CommentRequest id, json -> 
                 let comments = convert<Comment []> json
                 { db with comments = Map.add id comments db.comments }
